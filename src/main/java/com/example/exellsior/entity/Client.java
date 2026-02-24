@@ -5,7 +5,9 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Digits;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 @Entity
 @Table(name = "clients")
@@ -41,10 +43,27 @@ public class Client {
     private Integer price;
 
     // Relacion con VehicleType (opcional)
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "vehicle_type_id")
+   // @ManyToOne(fetch = FetchType.LAZY)
+    //@JoinColumn(name = "vehicle_type_id")
+    //@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+    //private VehicleType vehicleType;
+
+
+    // Relacion con VehicleType (hasta 4)
+   /* @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "client_vehicle_types",
+            joinColumns = @JoinColumn(name = "client_id"),
+            inverseJoinColumns = @JoinColumn(name = "vehicle_type_id")
+    )
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-    private VehicleType vehicleType;
+    private List<VehicleType> vehicleTypes = new ArrayList<>();*/
+
+    @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+    @JsonManagedReference
+    private List<ClientVehicle> clientVehicles = new ArrayList<>();
+
 
     private String paymentMethod;  // "efectivo", "credito", "prepago"
 
@@ -159,12 +178,12 @@ public class Client {
         this.price = price;
     }
 
-    public VehicleType getVehicleType() {
-        return vehicleType;
+    public List<ClientVehicle> getClientVehicles() {
+        return clientVehicles;
     }
 
-    public void setVehicleType(VehicleType vehicleType) {
-        this.vehicleType = vehicleType;
+    public void setClientVehicles(List<ClientVehicle> clientVehicles) {
+        this.clientVehicles = clientVehicles;
     }
 
     public String getPaymentMethod() {
@@ -175,11 +194,11 @@ public class Client {
         this.paymentMethod = paymentMethod;
     }
 
-    public Integer getClover() {
+    public @Digits(integer = 4, fraction = 0, message = "Clover debe tener exactamente 4 dígitos") Integer getClover() {
         return clover;
     }
 
-    public void setClover(Integer clover) {
+    public void setClover(@Digits(integer = 4, fraction = 0, message = "Clover debe tener exactamente 4 dígitos") Integer clover) {
         this.clover = clover;
     }
 
@@ -191,9 +210,19 @@ public class Client {
         this.entryTimestamp = entryTimestamp;
     }
 
-    public Long getExitTimestamp() { return exitTimestamp; }
-    public void setExitTimestamp(Long exitTimestamp) { this.exitTimestamp = exitTimestamp; }
+    public Long getExitTimestamp() {
+        return exitTimestamp;
+    }
 
-    public Long getLastDayClosed() { return lastDayClosed; }
-    public void setLastDayClosed(Long lastDayClosed) { this.lastDayClosed = lastDayClosed; }
+    public void setExitTimestamp(Long exitTimestamp) {
+        this.exitTimestamp = exitTimestamp;
+    }
+
+    public Long getLastDayClosed() {
+        return lastDayClosed;
+    }
+
+    public void setLastDayClosed(Long lastDayClosed) {
+        this.lastDayClosed = lastDayClosed;
+    }
 }

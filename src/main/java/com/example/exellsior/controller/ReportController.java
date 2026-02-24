@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,11 +17,29 @@ public class ReportController {
     @Autowired
     private ReportService reportService;
 
-    @PostMapping
+    /*@PostMapping
     public ResponseEntity<Report> createReport(@RequestBody Report report) {
         Report savedReport = reportService.saveReport(report);
         return ResponseEntity.ok(savedReport);
+    }*/
+
+    // agrega endpoint manual mensual
+    @PostMapping("/monthly/generate")
+    public ResponseEntity<Report> generateMonthly(@RequestParam(required = false) String month) {
+        YearMonth ym = (month == null || month.isBlank())
+                ? YearMonth.now()
+                : YearMonth.parse(month); // yyyy-MM
+        Report r = reportService.generateMonthlyFromDailyReports(ym);
+        return ResponseEntity.ok(r);
     }
+
+    @PostMapping
+    public ResponseEntity<Report> createOrGenerate(@RequestBody Report report) {
+        Report savedReport = reportService.createOrGenerate(report);
+        return ResponseEntity.ok(savedReport);
+    }
+
+
 
     @GetMapping
     public ResponseEntity<List<Report>> getAllReports() {

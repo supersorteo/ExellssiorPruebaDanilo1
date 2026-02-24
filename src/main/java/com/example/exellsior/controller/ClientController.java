@@ -38,14 +38,14 @@ public class ClientController {
         return ResponseEntity.ok(client);
     }
 
-    /*@GetMapping("/dni-list/{dni}")
-    public ResponseEntity<List<Client>> getByDniList(@PathVariable String dni) {
-        List<Client> clients = clientService.findByDni(dni);
-        if (clients.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(clients);
-    }*/
+    @GetMapping("/dni/{dni}/reservas")
+    public ResponseEntity<List<Client>> getReservationsByDni(@PathVariable String dni) {
+        List<Client> reservations = clientService.getReservationsByDni(dni);
+
+        return ResponseEntity.ok(reservations);
+    }
+
+
 
 
 
@@ -57,14 +57,7 @@ public class ClientController {
 
 
 
-    /*@PutMapping("/{id}")
-    public Client update(@PathVariable Long id, @RequestBody Client updatedClient) {
-        // Validamos que el cliente exista
-        clientService.getById(id);
 
-        updatedClient.setId(id);
-        return clientService.saveClient(updatedClient);
-    }*/
 
     @PutMapping("/{id}")
     public Client update(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
