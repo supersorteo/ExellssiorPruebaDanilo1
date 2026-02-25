@@ -42,22 +42,7 @@ public class Client {
     private String category;
     private Integer price;
 
-    // Relacion con VehicleType (opcional)
-   // @ManyToOne(fetch = FetchType.LAZY)
-    //@JoinColumn(name = "vehicle_type_id")
-    //@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-    //private VehicleType vehicleType;
 
-
-    // Relacion con VehicleType (hasta 4)
-   /* @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-            name = "client_vehicle_types",
-            joinColumns = @JoinColumn(name = "client_id"),
-            inverseJoinColumns = @JoinColumn(name = "vehicle_type_id")
-    )
-    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-    private List<VehicleType> vehicleTypes = new ArrayList<>();*/
 
     @OneToMany(mappedBy = "client", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})

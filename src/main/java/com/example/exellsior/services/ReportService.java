@@ -10,6 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import com.example.exellsior.entity.Space;
+
 
 import com.example.exellsior.repository.SpaceRepository;
 
@@ -31,13 +33,17 @@ public class ReportService {
     @Autowired
     private SpaceRepository spaceRepository;
 
+    @Autowired
+    private ClientService clientService;
+
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     public Report saveReport0(Report report) {
         return reportRepository.save(report);
     }
 
-    public Report saveReport(Report report) {
+    public Report saveReport1(Report report) {
         // si frontend no envía periodType/key, completar como DAILY
         if (report.getPeriodType() == null || report.getPeriodType().isBlank()) {
             report.setPeriodType("DAILY");
@@ -48,6 +54,30 @@ public class ReportService {
         }
         return reportRepository.save(report);
     }
+
+    public Report saveReport(Report report) {
+        if (report.getPeriodType() == null || report.getPeriodType().isBlank()) {
+            report.setPeriodType("DAILY");
+        }
+
+        if (report.getPeriodKey() == null || report.getPeriodKey().isBlank()) {
+            String dayKey = LocalDate.now(ZoneId.of("America/Argentina/Buenos_Aires"))
+                    .format(DateTimeFormatter.ISO_DATE);
+            report.setPeriodKey(dayKey);
+        }
+
+        if (report.getTimestamp() == null || report.getTimestamp().isBlank()) {
+            report.setTimestamp(OffsetDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")).toString());
+        }
+
+        // DAILY manual/auto por defecto NO final
+        if ("DAILY".equalsIgnoreCase(report.getPeriodType()) && report.getDailyFinal() == null) {
+            report.setDailyFinal(false);
+        }
+
+        return reportRepository.save(report);
+    }
+
 
     public List<Report> getAllReports() {
         return reportRepository.findAll();
@@ -63,80 +93,10 @@ public class ReportService {
 
 
 
-    /*public Report generateMonthlyReport(LocalDate monthDate) {
-        LocalDate firstDay = monthDate.withDayOfMonth(1);
-        LocalDate nextMonth = firstDay.plusMonths(1);
-
-        Date from = Date.from(firstDay.atStartOfDay(ZoneId.systemDefault()).toInstant());
-        Date to = Date.from(nextMonth.atStartOfDay(ZoneId.systemDefault()).toInstant());
-
-        List<Client> monthlyClients = clientRepository.findByEntryTimestampBetween(from, to);
-
-        Map<String, Long> paymentAmounts = new LinkedHashMap<>();
-        paymentAmounts.put("efectivo", 0L);
-        paymentAmounts.put("credito", 0L);
-        paymentAmounts.put("prepago", 0L);
-        paymentAmounts.put("qr", 0L);
-        paymentAmounts.put("debito", 0L);
-        paymentAmounts.put("scaneo", 0L);
-        paymentAmounts.put("S/Cargo", 0L);
-        paymentAmounts.put("otros", 0L);
-
-        long totalCobrado = 0L;
-        for (Client c : monthlyClients) {
-            long amount = c.getPrice() != null ? c.getPrice() : 0;
-            totalCobrado += amount;
-            String method = c.getPaymentMethod() != null ? c.getPaymentMethod().trim().toLowerCase() : "otros";
-            if (!paymentAmounts.containsKey(method)) method = "otros";
-            paymentAmounts.put(method, paymentAmounts.get(method) + amount);
-        }
-
-        int totalSpaces = (int) spaceRepository.count();
-        int occupiedSpaces = 0; // mensual acumulado: snapshot no aplica, puedes guardar 0 o estado actual
-        int freeSpaces = totalSpaces - occupiedSpaces;
-        int occupancyRate = totalSpaces > 0 ? Math.round((occupiedSpaces * 100f) / totalSpaces) : 0;
-
-        Report report = new Report();
-        report.setTimestamp(OffsetDateTime.now().toString());
-        report.setPeriodType("MONTHLY");
-        report.setPeriodKey(firstDay.format(DateTimeFormatter.ofPattern("yyyy-MM")));
-        report.setTotalSpaces(totalSpaces);
-        report.setOccupiedSpaces(occupiedSpaces);
-        report.setFreeSpaces(freeSpaces);
-        report.setOccupancyRate(occupancyRate);
-        report.setSubsueloStats("[]");
-        report.setTimeStats("{}");
-        report.setTotalCobrado(totalCobrado);
-
-        try {
-            report.setFilteredClients(mapper.writeValueAsString(monthlyClients));
-            report.setPaymentAmounts(mapper.writeValueAsString(paymentAmounts));
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Error serializando reporte mensual", e);
-        }
-
-        return reportRepository.save(report);
-    }
-
-    // Ejecuta diariamente a las 23:59 y genera mensual solo si es último día del mes
-    @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
-    public void generateMonthlyReportIfLastDay() {
-        LocalDate today = LocalDate.now(ZoneId.of("America/Argentina/Buenos_Aires"));
-        LocalDate tomorrow = today.plusDays(1);
-
-        if (!tomorrow.getMonth().equals(today.getMonth())) {
-            String key = today.withDayOfMonth(1).format(DateTimeFormatter.ofPattern("yyyy-MM"));
-            boolean alreadyExists = reportRepository.existsByPeriodTypeAndPeriodKey("MONTHLY", key);
-            if (!alreadyExists) {
-                generateMonthlyReport(today);
-            }
-        }
-    }*/
 
 
 
-
-    public Report generateMonthlyFromDailyReports(YearMonth ym) {
+   /* public Report generateMonthlyFromDailyReports(YearMonth ym) {
         String monthKey = ym.toString(); // yyyy-MM
 
         List<Report> dailyReports = reportRepository
@@ -216,9 +176,126 @@ public class ReportService {
         monthly.setTotalCobrado(totalCobrado);
 
         return reportRepository.save(monthly);
+    }*/
+
+    public Report generateMonthlyFromDailyReports(YearMonth ym) {
+        String monthKey = ym.toString(); // yyyy-MM
+
+        // 1) Preferir reportes DAILY finales
+        List<Report> finalDailyReports = reportRepository
+                .findByPeriodTypeAndPeriodKeyStartingWithAndDailyFinalTrue("DAILY", monthKey);
+
+        // 2) Todos los DAILY (para fallback por día si no hay final)
+        List<Report> allDailyReports = reportRepository
+                .findByPeriodTypeAndPeriodKeyStartingWith("DAILY", monthKey);
+
+        // 3) Quedarse con 1 reporte por día:
+        //    - si existe final para el día -> usar ese
+        //    - si no existe final -> usar el último DAILY por timestamp
+        Map<String, Report> latestAnyByDay = new HashMap<>();
+        for (Report r : allDailyReports) {
+            if (r == null || r.getPeriodKey() == null) continue;
+            Report current = latestAnyByDay.get(r.getPeriodKey());
+            if (current == null || parseTs(r.getTimestamp()).isAfter(parseTs(current.getTimestamp()))) {
+                latestAnyByDay.put(r.getPeriodKey(), r);
+            }
+        }
+
+        Map<String, Report> finalByDay = new HashMap<>();
+        for (Report r : finalDailyReports) {
+            if (r == null || r.getPeriodKey() == null) continue;
+            Report current = finalByDay.get(r.getPeriodKey());
+            if (current == null || parseTs(r.getTimestamp()).isAfter(parseTs(current.getTimestamp()))) {
+                finalByDay.put(r.getPeriodKey(), r);
+            }
+        }
+
+        // Selección final por día
+        Map<String, Report> selectedByDay = new HashMap<>(latestAnyByDay);
+        finalByDay.forEach(selectedByDay::put); // final pisa fallback
+
+        List<Report> dailyReports = new ArrayList<>(selectedByDay.values());
+        dailyReports.sort(Comparator.comparing(Report::getTimestamp, Comparator.nullsLast(String::compareTo)));
+
+        List<Map<String, Object>> monthlyClients = new ArrayList<>();
+        Map<String, Long> paymentAmounts = new LinkedHashMap<>();
+        paymentAmounts.put("efectivo", 0L);
+        paymentAmounts.put("credito", 0L);
+        paymentAmounts.put("prepago", 0L);
+        paymentAmounts.put("qr", 0L);
+        paymentAmounts.put("debito", 0L);
+        paymentAmounts.put("scaneo", 0L);
+        paymentAmounts.put("S/Cargo", 0L);
+        paymentAmounts.put("otros", 0L);
+
+        long totalCobrado = 0L;
+        int totalSpaces = 0;
+        int occupiedSpaces = 0;
+        int freeSpaces = 0;
+        int occupancyRate = 0;
+
+        for (Report d : dailyReports) {
+            try {
+                List<Map<String, Object>> dayClients = mapper.readValue(
+                        d.getFilteredClients() == null ? "[]" : d.getFilteredClients(),
+                        new TypeReference<List<Map<String, Object>>>() {}
+                );
+                monthlyClients.addAll(dayClients);
+            } catch (Exception e) {
+                System.out.println("Error parseando filteredClients del reporte diario ID " + d.getId());
+            }
+
+            try {
+                Map<String, Object> dayPay = mapper.readValue(
+                        d.getPaymentAmounts() == null ? "{}" : d.getPaymentAmounts(),
+                        new TypeReference<Map<String, Object>>() {}
+                );
+                for (Map.Entry<String, Object> entry : dayPay.entrySet()) {
+                    String k = entry.getKey();
+                    long v = Long.parseLong(String.valueOf(entry.getValue()));
+                    if (!paymentAmounts.containsKey(k)) k = "otros";
+                    paymentAmounts.put(k, paymentAmounts.get(k) + v);
+                }
+            } catch (Exception ignored) {}
+
+            totalCobrado += (d.getTotalCobrado() == null ? 0L : d.getTotalCobrado());
+
+            // snapshot del último diario usado del mes
+            totalSpaces = d.getTotalSpaces();
+            occupiedSpaces = d.getOccupiedSpaces();
+            freeSpaces = d.getFreeSpaces();
+            occupancyRate = d.getOccupancyRate();
+        }
+
+        Report monthly = reportRepository
+                .findByPeriodTypeAndPeriodKey("MONTHLY", monthKey)
+                .orElse(new Report());
+
+        monthly.setTimestamp(OffsetDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")).toString());
+        monthly.setPeriodType("MONTHLY");
+        monthly.setPeriodKey(monthKey);
+        monthly.setDailyFinal(false); // no aplica a monthly
+        monthly.setTotalSpaces(totalSpaces);
+        monthly.setOccupiedSpaces(occupiedSpaces);
+        monthly.setFreeSpaces(freeSpaces);
+        monthly.setOccupancyRate(occupancyRate);
+
+        try {
+            monthly.setFilteredClients(mapper.writeValueAsString(monthlyClients));
+            monthly.setPaymentAmounts(mapper.writeValueAsString(paymentAmounts));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Error serializando reporte mensual", e);
+        }
+
+        monthly.setSubsueloStats("[]");
+        monthly.setTimeStats("{}");
+        monthly.setTotalCobrado(totalCobrado);
+
+        return reportRepository.save(monthly);
     }
 
-    public Report createOrGenerate(Report report) {
+
+    public Report createOrGenerate0(Report report) {
         String periodType = (report.getPeriodType() == null || report.getPeriodType().isBlank())
                 ? "DAILY"
                 : report.getPeriodType().trim().toUpperCase();
@@ -239,6 +316,36 @@ public class ReportService {
         return reportRepository.save(report);
     }
 
+
+    public Report createOrGenerate(Report report) {
+        String periodType = (report.getPeriodType() == null || report.getPeriodType().isBlank())
+                ? "DAILY"
+                : report.getPeriodType().trim().toUpperCase();
+
+        if ("MONTHLY".equals(periodType)) {
+            YearMonth ym = resolveYearMonth(report);
+            return generateMonthlyFromDailyReports(ym);
+        }
+
+        // DAILY
+        report.setPeriodType("DAILY");
+
+        if (report.getPeriodKey() == null || report.getPeriodKey().isBlank()) {
+            report.setPeriodKey(LocalDate.now(ZoneId.of("America/Argentina/Buenos_Aires")).toString());
+        }
+
+        if (report.getTimestamp() == null || report.getTimestamp().isBlank()) {
+            report.setTimestamp(OffsetDateTime.now(ZoneId.of("America/Argentina/Buenos_Aires")).toString());
+        }
+
+        if (report.getDailyFinal() == null) {
+            report.setDailyFinal(false); // manual/auto = preview/intermedio
+        }
+
+        return reportRepository.save(report);
+    }
+
+
     private YearMonth resolveYearMonth(Report report) {
         if (report.getPeriodKey() != null && !report.getPeriodKey().isBlank()) {
             return YearMonth.parse(report.getPeriodKey()); // yyyy-MM
@@ -249,7 +356,226 @@ public class ReportService {
         return YearMonth.now();
     }
 
-    @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+
+
+    private String toDailyPeriodKey(LocalDate day) {
+        return day.format(DateTimeFormatter.ISO_DATE); // yyyy-MM-dd
+    }
+
+    private Date[] getArgentinaDayRange(LocalDate day) {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        Date from = Date.from(day.atStartOfDay(zone).toInstant());
+        Date to = Date.from(day.plusDays(1).atStartOfDay(zone).toInstant());
+        return new Date[]{from, to};
+    }
+
+    private List<Map<String, Object>> parseClientsJsonSafe(String json) {
+        if (json == null || json.isBlank()) return new ArrayList<>();
+        try {
+            return mapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Map<String, Object>> mergeAndDedupReportClients(
+            List<Map<String, Object>> existingClients,
+            List<Map<String, Object>> currentClients
+    ) {
+        List<Map<String, Object>> merged = new ArrayList<>();
+        if (existingClients != null) merged.addAll(existingClients);
+        if (currentClients != null) merged.addAll(currentClients);
+
+        Map<String, Map<String, Object>> dedup = new LinkedHashMap<>();
+
+        for (Map<String, Object> c : merged) {
+            String key = String.valueOf(c.getOrDefault("id", "x")) + "|" +
+                    String.valueOf(c.getOrDefault("code", "x")) + "|" +
+                    String.valueOf(c.getOrDefault("entryTimestamp", "x")) + "|" +
+                    String.valueOf(c.getOrDefault("exitTimestamp", "x"));
+            dedup.put(key, c); // último gana
+        }
+
+        return new ArrayList<>(dedup.values());
+    }
+
+    private Map<String, Long> buildPaymentAmountsFromClientMaps(List<Map<String, Object>> clients) {
+        Map<String, Long> paymentAmounts = new LinkedHashMap<>();
+        paymentAmounts.put("efectivo", 0L);
+        paymentAmounts.put("credito", 0L);
+        paymentAmounts.put("prepago", 0L);
+        paymentAmounts.put("qr", 0L);
+        paymentAmounts.put("debito", 0L);
+        paymentAmounts.put("scaneo", 0L);
+        paymentAmounts.put("S/Cargo", 0L);
+        paymentAmounts.put("otros", 0L);
+
+        for (Map<String, Object> c : clients) {
+            String methodRaw = String.valueOf(c.getOrDefault("paymentMethod", "otros"));
+            long amount = 0L;
+            try {
+                amount = Long.parseLong(String.valueOf(c.getOrDefault("price", 0)));
+            } catch (Exception ignored) {}
+
+            String lower = methodRaw.toLowerCase();
+            String key;
+            if ("efectivo".equals(lower)) key = "efectivo";
+            else if ("credito".equals(lower)) key = "credito";
+            else if ("prepago".equals(lower)) key = "prepago";
+            else if ("qr".equals(lower)) key = "qr";
+            else if ("debito".equals(lower)) key = "debito";
+            else if ("scaneo".equals(lower)) key = "scaneo";
+            else if ("S/Cargo".equals(methodRaw)) key = "S/Cargo";
+            else key = "otros";
+
+            paymentAmounts.put(key, paymentAmounts.get(key) + amount);
+        }
+
+        return paymentAmounts;
+    }
+
+    private Map<String, Integer> buildTimeStatsFromClientMaps(List<Map<String, Object>> clients) {
+        Map<String, Integer> stats = new LinkedHashMap<>();
+        stats.put("under1h", 0);
+        stats.put("between1h3h", 0);
+        stats.put("over3h", 0);
+
+        long now = System.currentTimeMillis();
+
+        for (Map<String, Object> c : clients) {
+            Object entryObj = c.get("entryTimestamp");
+            if (entryObj == null) continue;
+
+            Long entryTs = null;
+            try {
+                entryTs = Long.parseLong(String.valueOf(entryObj));
+            } catch (Exception ignored) {}
+
+            if (entryTs == null) continue;
+
+            double hours = (now - entryTs) / 3600000.0;
+            if (hours < 1) stats.put("under1h", stats.get("under1h") + 1);
+            else if (hours <= 3) stats.put("between1h3h", stats.get("between1h3h") + 1);
+            else stats.put("over3h", stats.get("over3h") + 1);
+        }
+
+        return stats;
+    }
+
+    public Report finalizeDailyReportForDay(LocalDate day) {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        String periodKey = toDailyPeriodKey(day);
+
+        // 1) Clientes actuales del día (desde DB)
+        Date[] range = getArgentinaDayRange(day);
+        List<Client> todayClients = clientRepository.findByEntryTimestampBetween(range[0], range[1]);
+
+        List<Map<String, Object>> currentClients = new ArrayList<>();
+        for (Client c : todayClients) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", c.getId());
+            row.put("code", c.getCode());
+            row.put("name", c.getName());
+            row.put("dni", c.getDni());
+            row.put("phoneIntl", c.getPhoneIntl());
+            row.put("phoneRaw", c.getPhoneRaw());
+            row.put("plate", c.getPlate());
+            row.put("notes", c.getNotes());
+            row.put("spaceKey", c.getSpaceKey());
+            row.put("vehicle", c.getVehicle());
+            row.put("category", c.getCategory());
+            row.put("price", c.getPrice());
+            row.put("paymentMethod", c.getPaymentMethod());
+            row.put("clover", c.getClover());
+            row.put("entryTimestamp", c.getEntryTimestamp() != null ? c.getEntryTimestamp().getTime() : null);
+            row.put("exitTimestamp", c.getExitTimestamp());
+            row.put("spaceDisplayName", c.getSpaceKey() != null ? c.getSpaceKey() : "-");
+            currentClients.add(row);
+        }
+
+        // 2) Reportes DAILY existentes del mismo día (manuales/finales/legacy)
+        List<Report> sameDayDailyReports = reportRepository.findAllByPeriodTypeAndPeriodKey("DAILY", periodKey);
+
+        List<Map<String, Object>> existingClients = new ArrayList<>();
+        for (Report r : sameDayDailyReports) {
+            existingClients.addAll(parseClientsJsonSafe(r.getFilteredClients()));
+        }
+
+        // 3) Fusionar + deduplicar
+        List<Map<String, Object>> mergedClients = mergeAndDedupReportClients(existingClients, currentClients);
+
+        // 4) Si no hay nada, no crear reporte
+        if (sameDayDailyReports.isEmpty() && mergedClients.isEmpty()) {
+            System.out.println("[DAILY-FINALIZE] No hay datos para el día " + periodKey);
+            return null;
+        }
+
+        // 5) Snapshot de espacios al momento del cierre
+        List<Space> spaces = spaceRepository.findAll();
+        int totalSpaces = spaces.size();
+        int occupiedSpaces = 0;
+        for (Space s : spaces) {
+            if (s.isOccupied()) occupiedSpaces++;
+        }
+        int freeSpaces = totalSpaces - occupiedSpaces;
+        int occupancyRate = totalSpaces > 0 ? Math.round((occupiedSpaces * 100f) / totalSpaces) : 0;
+
+        // 6) Recalcular montos/tiempos desde lista fusionada
+        Map<String, Long> paymentAmounts = buildPaymentAmountsFromClientMaps(mergedClients);
+        long totalCobrado = paymentAmounts.values().stream().mapToLong(Long::longValue).sum();
+        Map<String, Integer> timeStats = buildTimeStatsFromClientMaps(mergedClients);
+
+        // 7) Crear reporte final consolidado del día
+        Report finalReport = new Report();
+        finalReport.setTimestamp(OffsetDateTime.now(zone).toString());
+        finalReport.setPeriodType("DAILY");
+        finalReport.setPeriodKey(periodKey);
+        finalReport.setDailyFinal(true);
+
+        finalReport.setTotalSpaces(totalSpaces);
+        finalReport.setOccupiedSpaces(occupiedSpaces);
+        finalReport.setFreeSpaces(freeSpaces);
+        finalReport.setOccupancyRate(occupancyRate);
+
+        // Puedes mejorar subsueloStats si luego agregas SubsueloRepository aquí
+        finalReport.setSubsueloStats("[]");
+
+        try {
+            finalReport.setFilteredClients(mapper.writeValueAsString(mergedClients));
+            finalReport.setPaymentAmounts(mapper.writeValueAsString(paymentAmounts));
+            finalReport.setTimeStats(mapper.writeValueAsString(timeStats));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Error serializando reporte diario final", e);
+        }
+
+        finalReport.setTotalCobrado(totalCobrado);
+
+        // 8) Reemplazar todos los DAILY del día por uno final consolidado
+        if (!sameDayDailyReports.isEmpty()) {
+            reportRepository.deleteAll(sameDayDailyReports);
+        }
+
+        Report saved = reportRepository.save(finalReport);
+
+        System.out.println("[DAILY-FINALIZE] Reporte final diario guardado. day=" + periodKey +
+                " reportId=" + saved.getId() +
+                " mergedClients=" + mergedClients.size());
+
+        return saved;
+    }
+
+    public void finalizeDailyReportAndResetDay(LocalDate day) {
+        Report finalReport = finalizeDailyReportForDay(day);
+        System.out.println("[DAILY-CLOSE] Finalize result day=" + day +
+                " reportId=" + (finalReport != null ? finalReport.getId() : "null"));
+
+        clientService.resetAllData();
+    }
+
+
+   // @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+    @Scheduled(cron = "30 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+
     public void autoMonthlyEndOfMonth() {
         ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
         LocalDate now = LocalDate.now(zone);
@@ -268,6 +594,33 @@ public class ReportService {
         generateMonthlyFromDailyReports(ym);
     }
 
+    @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+    public void autoDailyCloseEndOfDay() {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        LocalDate today = LocalDate.now(zone);
+
+        System.out.println("[DAILY-AUTO-CLOSE] Ejecutando cierre automático para " + today);
+
+        try {
+            finalizeDailyReportAndResetDay(today);
+            System.out.println("[DAILY-AUTO-CLOSE] Cierre automático completado para " + today);
+        } catch (Exception e) {
+            System.err.println("[DAILY-AUTO-CLOSE] Error en cierre automático: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+
+
+
+    private OffsetDateTime parseTs(String ts) {
+        if (ts == null || ts.isBlank()) return OffsetDateTime.MIN;
+        try {
+            return OffsetDateTime.parse(ts);
+        } catch (Exception e) {
+            return OffsetDateTime.MIN;
+        }
+    }
 
 
 }

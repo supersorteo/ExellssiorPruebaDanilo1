@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,11 +18,7 @@ public class ReportController {
     @Autowired
     private ReportService reportService;
 
-    /*@PostMapping
-    public ResponseEntity<Report> createReport(@RequestBody Report report) {
-        Report savedReport = reportService.saveReport(report);
-        return ResponseEntity.ok(savedReport);
-    }*/
+
 
     // agrega endpoint manual mensual
     @PostMapping("/monthly/generate")
@@ -59,4 +56,18 @@ public class ReportController {
         reportService.deleteReport(id);
         return ResponseEntity.noContent().build();
     }
+
+
+    @PostMapping("/daily/finalize-and-close")
+    public ResponseEntity<Void> finalizeDailyAndClose(@RequestParam(required = false) String day) {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        LocalDate targetDay = (day == null || day.isBlank())
+                ? LocalDate.now(zone)
+                : LocalDate.parse(day);
+
+        reportService.finalizeDailyReportAndResetDay(targetDay);
+        return ResponseEntity.ok().build();
+    }
+
+
 }

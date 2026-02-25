@@ -23,6 +23,7 @@ com\example\exellsior\controller\AuthController.class
 com\example\exellsior\configuration\CorsConfig.class
 com\example\exellsior\services\AuthService.class
 com\example\exellsior\services\ClientService.class
+com\example\exellsior\services\ReportService$3.class
 com\example\exellsior\entity\Client.class
 com\example\exellsior\entity\Space.class
 com\example\exellsior\services\ReportService$1.class

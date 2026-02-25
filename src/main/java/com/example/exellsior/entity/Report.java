@@ -52,6 +52,9 @@ public class Report {
     @Column(name = "total_cobrado")
     private Long totalCobrado;
 
+    @Column(name = "daily_final")
+    private Boolean dailyFinal = false;
+
     public Long getId() {
         return id;
     }
@@ -145,5 +148,13 @@ public class Report {
 
     public void setTotalCobrado(Long totalCobrado) {
         this.totalCobrado = totalCobrado;
+    }
+
+    public Boolean getDailyFinal() {
+        return dailyFinal;
+    }
+
+    public void setDailyFinal(Boolean dailyFinal) {
+        this.dailyFinal = dailyFinal;
     }
 }

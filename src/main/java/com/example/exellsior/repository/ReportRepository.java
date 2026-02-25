@@ -13,4 +13,8 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
     Optional<Report> findByPeriodTypeAndPeriodKey(String periodType, String periodKey);
     List<Report> findByPeriodTypeAndPeriodKeyStartingWith(String periodType, String periodPrefix);
 
+    List<Report> findByPeriodTypeAndPeriodKeyStartingWithAndDailyFinalTrue(String periodType, String periodPrefix);
+    List<Report> findAllByPeriodTypeAndPeriodKey(String periodType, String periodKey);
+
+
 }

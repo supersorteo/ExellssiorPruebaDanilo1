@@ -22,6 +22,10 @@ public class ClientController {
     }
 
 
+    @GetMapping("/unique")
+    public ResponseEntity<List<Client>> getUniqueClients() {
+        return ResponseEntity.ok(clientService.getUniqueClients());
+    }
 
 
     @GetMapping("/{id}")
