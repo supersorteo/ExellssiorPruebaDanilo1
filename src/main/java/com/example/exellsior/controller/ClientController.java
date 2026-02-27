@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +28,31 @@ public class ClientController {
     public ResponseEntity<List<Client>> getUniqueClients() {
         return ResponseEntity.ok(clientService.getUniqueClients());
     }
+
+    @GetMapping("/dni/{dni}/monthly-count")
+    public ResponseEntity<Long> getMonthlyCountByDni(
+            @PathVariable String dni,
+            @RequestParam(required = false) String month
+    ) {
+        YearMonth ym = (month == null || month.isBlank())
+                ? YearMonth.now(ZoneId.of("America/Argentina/Buenos_Aires"))
+                : YearMonth.parse(month); // yyyy-MM
+
+        return ResponseEntity.ok(clientService.getMonthlyServiceCountByDni(dni, ym));
+    }
+
+    @PostMapping("/monthly-counts")
+    public ResponseEntity<Map<String, Long>> getMonthlyCountsByDnis(
+            @RequestBody List<String> dnis,
+            @RequestParam(required = false) String month
+    ) {
+        YearMonth ym = (month == null || month.isBlank())
+                ? YearMonth.now(ZoneId.of("America/Argentina/Buenos_Aires"))
+                : YearMonth.parse(month); // yyyy-MM
+
+        return ResponseEntity.ok(clientService.getMonthlyServiceCountsByDnis(dnis, ym));
+    }
+
 
 
     @GetMapping("/{id}")

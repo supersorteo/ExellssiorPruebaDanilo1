@@ -8,10 +8,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import com.example.exellsior.entity.Space;
-
+import org.springframework.context.event.EventListener;
 
 import com.example.exellsior.repository.SpaceRepository;
 
@@ -575,7 +576,6 @@ public class ReportService {
 
    // @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
     @Scheduled(cron = "30 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
-
     public void autoMonthlyEndOfMonth() {
         ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
         LocalDate now = LocalDate.now(zone);
@@ -594,7 +594,8 @@ public class ReportService {
         generateMonthlyFromDailyReports(ym);
     }
 
-    @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+
+   /* @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
     public void autoDailyCloseEndOfDay() {
         ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
         LocalDate today = LocalDate.now(zone);
@@ -608,8 +609,63 @@ public class ReportService {
             System.err.println("[DAILY-AUTO-CLOSE] Error en cierre automático: " + e.getMessage());
             e.printStackTrace();
         }
+    }*/
+
+
+    @Scheduled(cron = "0 59 23 * * *", zone = "America/Argentina/Buenos_Aires")
+    public void autoDailyCloseEndOfDay() {
+        runDailyCloseIfNeeded("SCHEDULED");
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpDailyCloseOnStartup0() {
+        runDailyCloseIfNeeded("STARTUP");
+    }
+
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpDailyCloseOnStartup() {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        LocalDate today = LocalDate.now(zone);
+        LocalDate yesterday = today.minusDays(1);
+
+        LocalDate lastClosedDay = getLastClosedDayFromClients(zone);
+
+        // Si nunca hubo cierre registrado, intentamos al menos el día anterior
+        LocalDate startDay = (lastClosedDay == null) ? yesterday : lastClosedDay.plusDays(1);
+
+        if (startDay.isAfter(yesterday)) {
+            System.out.println("[DAILY-CATCHUP] No hay días pendientes por cerrar.");
+            return;
+        }
+
+        System.out.println("[DAILY-CATCHUP] Ejecutando catch-up multi-día. startDay=" + startDay + " yesterday=" + yesterday);
+
+        LocalDate day = startDay;
+        while (!day.isAfter(yesterday)) {
+            System.out.println("[DAILY-CATCHUP] Cerrando día pendiente: " + day);
+
+            try {
+                try {
+                    finalizeDailyReportForDay(day);
+                    System.out.println("[DAILY-CATCHUP] Reporte final OK para " + day);
+                } catch (Exception reportErr) {
+                    System.err.println("[DAILY-CATCHUP] Falló reporte final para " + day + ", se continúa reset: " + reportErr.getMessage());
+                    reportErr.printStackTrace();
+                }
+
+                clientService.resetAllData();
+                System.out.println("[DAILY-CATCHUP] Reset OK para " + day);
+            } catch (Exception resetErr) {
+                System.err.println("[DAILY-CATCHUP] Error en reset para " + day + ": " + resetErr.getMessage());
+                resetErr.printStackTrace();
+                // si un día falla, cortar para evitar más daño en cadena
+                break;
+            }
+
+            day = day.plusDays(1);
+        }
+    }
 
 
 
@@ -622,5 +678,69 @@ public class ReportService {
         }
     }
 
+
+    private void runDailyCloseIfNeeded(String source) {
+        ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+        LocalDate today = LocalDate.now(zone);
+        long todayStartMs = today.atStartOfDay(zone).toInstant().toEpochMilli();
+
+        List<com.example.exellsior.entity.Space> spaces = spaceRepository.findAll();
+
+        boolean staleOccupied = spaces.stream().anyMatch(s ->
+                s.isOccupied() &&
+                        s.getStartTime() != null &&
+                        s.getStartTime() < todayStartMs
+        );
+
+        // Si arranca app y no hay nada pendiente, no hacer nada
+        if ("STARTUP".equals(source) && !staleOccupied) {
+            System.out.println("[DAILY-CATCHUP] No hay espacios pendientes de cierre.");
+            return;
+        }
+
+        // En startup, si quedó pendiente, cerrar el día anterior.
+        // En scheduler normal (23:59), también cerramos el día actual.
+        LocalDate targetDay = "STARTUP".equals(source) ? today.minusDays(1) : today;
+
+        System.out.println("[DAILY-CLOSE] source=" + source +
+                " today=" + today +
+                " targetDay=" + targetDay +
+                " staleOccupied=" + staleOccupied);
+
+        try {
+            try {
+                // consolidar reporte final diario
+                finalizeDailyReportForDay(targetDay);
+                System.out.println("[DAILY-CLOSE] Reporte final diario OK para " + targetDay);
+            } catch (Exception reportErr) {
+                // no bloquea reset
+                System.err.println("[DAILY-CLOSE] Falló generación de reporte final, se continúa con reset: " + reportErr.getMessage());
+                reportErr.printStackTrace();
+            }
+
+            // reset operativo de espacios/clientes
+            clientService.resetAllData();
+            System.out.println("[DAILY-CLOSE] Reset OK para " + targetDay);
+        } catch (Exception resetErr) {
+            System.err.println("[DAILY-CLOSE] Error durante reset: " + resetErr.getMessage());
+            resetErr.printStackTrace();
+        }
+    }
+
+
+    private LocalDate getLastClosedDayFromClients(ZoneId zone) {
+        List<Client> clients = clientRepository.findAll();
+
+        long maxLastDayClosedMs = 0L;
+        for (Client c : clients) {
+            if (c.getLastDayClosed() != null && c.getLastDayClosed() > maxLastDayClosedMs) {
+                maxLastDayClosedMs = c.getLastDayClosed();
+            }
+        }
+
+        if (maxLastDayClosedMs <= 0L) return null;
+
+        return new Date(maxLastDayClosedMs).toInstant().atZone(zone).toLocalDate();
+    }
 
 }
